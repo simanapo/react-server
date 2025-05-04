@@ -1,22 +1,17 @@
-import * as acorn from "acorn";
-import * as escodegen from "escodegen";
-import * as estraverse from "estraverse";
-
 import * as sys from "../sys.mjs";
+import { codegen, parse, walk } from "../utils/ast.mjs";
 
 export default function useServerInline(profiles) {
   return {
     name: "react-server:use-cache-inline",
-    async transform(code, id) {
-      try {
+    transform: {
+      filter: {
+        id: /\.m?[jt]sx?$/,
+      },
+      async handler(code, id) {
         if (!code.includes("use cache")) return null;
 
-        const ast = acorn.parse(code, {
-          sourceType: "module",
-          ecmaVersion: 2021,
-          sourceFile: id,
-          locations: true,
-        });
+        const ast = await parse(code, id);
 
         const directives = ast.body
           .filter((node) => node.type === "ExpressionStatement")
@@ -36,7 +31,7 @@ export default function useServerInline(profiles) {
         const cacheKey = (node) =>
           `__react_server_cache__line${node.loc.start.line}_col${node.loc.start.column}__`;
 
-        estraverse.replace(ast, {
+        walk(ast, {
           enter(node) {
             node.parent = parent;
 
@@ -210,6 +205,10 @@ export default function useServerInline(profiles) {
                   type: "Identifier",
                   name: "useCache",
                 },
+                local: {
+                  type: "Identifier",
+                  name: "useCache",
+                },
               },
             ],
             source: {
@@ -378,18 +377,8 @@ export default function useServerInline(profiles) {
           })),
         });
 
-        const gen = escodegen.generate(ast, {
-          sourceMap: true,
-          sourceMapWithCode: true,
-        });
-
-        return {
-          code: gen.code,
-          map: gen.map.toString(),
-        };
-      } catch {
-        // skip
-      }
+        return codegen(ast, id);
+      },
     },
   };
 }
